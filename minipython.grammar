@@ -1,0 +1,189 @@
+Package minipython;
+
+Helpers
+	digit = ['0' .. '9'];
+	letter = ['a' .. 'z'] | ['A' .. 'Z'];
+	lf = 10;
+	cr = 13;
+	space = 32;
+	dquote = 34;
+	hashtag = 35;
+	squote = 39;
+	fullstop = 46;
+	underscore = 95;
+	all = [0..127];
+	eol = lf | cr | cr lf ;
+	not_eol = [all - [cr + lf]];
+
+Tokens
+	tab = 9;
+	plusplus = '++';
+	minusminus = '--';
+	plus = '+';
+	minus = '-';
+	mult = '*';
+	div = '/';
+	assignment = '=';
+	minus_eq = '-=';
+	div_eq = '/=';
+	
+	def = 'def';
+	
+	l_par = '(';
+	r_par = ')';
+	l_br = '[';
+	r_br = ']';
+	
+	comma = ',';
+	semi = ':';
+	
+	if = 'if';
+	while = 'while';
+	for = 'for';
+	in = 'in';
+	return = 'return';
+	print = 'print';
+	
+	
+	
+	greater = '>';
+	less = '<';
+	not_eq = '!=';
+	equal = '==';
+	
+	true = 'true';
+	false = 'false';
+	
+	blank = (space | eol);
+	line_comment = hashtag not_eol* eol;
+	num = digit+ | (digit+ fullstop digit+);
+	string = squote (space* | letter*)* squote | dquote (space* | letter*)* dquote;
+	id = underscore* letter (letter | digit | underscore)*;
+
+Ignored Tokens	
+
+	blank, line_comment;
+	
+Productions
+
+	goal = commands* {-> New goal([commands])};
+	
+	commands =  {fnctn} function {-> New commands.fnctn(function)}
+			  |	{sttmnt} statement {-> New commands.sttmnt(statement)};
+
+	function = def identifier l_par argument? r_par semi statement {-> New function(identifier.expression, [argument], statement)};
+	
+	argument = identifier assignment_value? extra_args* {-> New argument(identifier.expression, [assignment_value.expression], [extra_args])};
+	
+	extra_args = comma identifier assignment_value? {-> New extra_args(identifier.expression, [assignment_value.expression])};
+	
+	assignment_value {-> expression} = assignment value {-> value.expression};
+	
+	statement =  {if_state}		tab* if comparison semi statement {-> New statement.if_state(comparison, statement)}
+			   | {while_state}	tab* while comparison semi statement {-> New statement.while_state(comparison, statement)}
+			   | {for_state}	tab* for [identifier_for]:identifier in [identifier_in]:identifier semi statement {-> New statement.for_state(identifier_for.expression, identifier_in.expression, statement)}
+			   | {return_expr}	tab* return expression {-> New statement.return_expr(expression)}
+			   | {print_expr}	tab* print expression extra* {-> New statement.print_expr(expression, [extra.expression])}
+			   | {assignment}	tab* identifier assignment expression {-> New statement.assignment(identifier.expression, expression)}
+			   | {minus_eq}		tab* identifier minus_eq expression {-> New statement.minus_eq(identifier.expression, expression)}
+			   | {div_eq}		tab* identifier div_eq expression {-> New statement.div_eq(identifier.expression, expression)}
+			   | {left_branch}  tab* identifier l_br [expr1]: expression r_br assignment [expr2]: expression {-> New statement.left_branch(identifier.expression, expr1, expr2)}
+			   | {funcall}  	tab* function_call {-> New statement.function_call(function_call.expression)};
+			   
+	extra {-> expression} = comma expression {-> expression};
+		
+	expression =  {arith_op} plus_minus {-> plus_minus.expression}
+				| {leftbr_identifier} l_br value leftbr_extra* r_br {->New expression.leftbr_identifier(value.expression, [leftbr_extra.expression])};
+				
+	leftbr_extra {-> expression} = comma value {-> value.expression};
+	
+	comparison =  {comp_great_less_eq} comparison_eq_not_eq {-> comparison_eq_not_eq.comparison}
+				| {true}   true {-> New comparison.true()}
+				| {false}  false {-> New comparison.false()};
+				
+	
+	comparison_greater_less {-> comparison} =     {plm} plus_minus {-> New comparison.plm(plus_minus.expression)}
+												| {less} comparison_greater_less less plus_minus {-> New comparison.less(comparison_greater_less.comparison, plus_minus.expression)}
+												| {grt} comparison_greater_less greater plus_minus {-> New comparison.greater(comparison_greater_less.comparison, plus_minus.expression)};
+											
+	comparison_eq_not_eq {-> comparison} =    {comp} comparison_greater_less {-> comparison_greater_less.comparison}
+											| {equal} comparison_eq_not_eq equal comparison_greater_less {-> New comparison.equal(comparison_eq_not_eq.comparison, comparison_greater_less.comparison)}
+											| {not_equal} comparison_eq_not_eq not_eq comparison_greater_less {-> New comparison.not_equal(comparison_eq_not_eq.comparison, comparison_greater_less.comparison)};
+											
+	postfix {-> expression} =  	 {value} element {-> element.expression}
+								|{pop} postfix plusplus {-> New expression.plusplus(postfix.expression)}
+								|{pom} postfix minusminus {-> New expression.minusminus(postfix.expression)};
+				
+	prefix {-> expression}  =  	 {value} postfix {-> postfix.expression}
+								|{prp}  plusplus prefix {-> New expression.plusplus(prefix.expression)}
+								|{prm}  minusminus prefix {-> New expression.minusminus(prefix.expression)};		
+																		
+	mult_div {-> expression} =    {value} prefix {-> prefix.expression}
+								| {mult} mult_div mult prefix {-> New expression.mult(mult_div.expression, prefix.expression)}
+								| {div} mult_div div prefix {-> New expression.div(mult_div.expression, prefix.expression)};
+			 
+	plus_minus {-> expression} =   {mult} mult_div {-> mult_div.expression}
+								 | {add} plus_minus plus mult_div {-> New expression.add(plus_minus.expression, mult_div.expression)}
+								 | {sub}  plus_minus minus mult_div {-> New expression.sub(plus_minus.expression, mult_div.expression)};		 
+				
+	element {-> expression} = 	 {value} value {-> value.expression}
+								|{id} identifier {-> identifier.expression}
+								|{par} l_par expression r_par {-> expression}
+								|{identifier_leftbr} identifier l_br expression r_br {-> New expression.identifier_leftbr(identifier.expression, expression)}
+								|{funcall} function_call {-> function_call.expression};
+
+	function_call {-> expression} = identifier l_par arglist? r_par {-> New expression.function_call(identifier.expression, [arglist.expression])};
+	
+	arglist {-> expression*} = expression extra* {-> [expression extra.expression]};
+		
+	value {-> expression} =   {number} number {-> number.expression}
+							| {string} string {-> New expression.string(string)};
+	
+	number {-> expression}  = num {-> New expression.number(num)};
+	
+	identifier {-> expression} = id {-> New expression.identifier(id)};
+	
+Abstract Syntax Tree
+
+	goal = commands*;
+	
+	commands = 	  {fnctn} function
+				| {sttmnt} statement;
+				
+	function = expression argument* statement;
+	
+	argument = [l]: expression [r]: expression* extra_args*;
+
+	extra_args = [l]: expression [r]: expression*;
+	
+	statement =   {if_state} comparison statement
+				| {while_state} comparison statement
+				| {for_state}	[identifier_for]:expression [identifier_in]:expression statement
+				| {return_expr}	expression
+				| {print_expr}	[l]: expression [r]: expression*
+				| {assignment}	[l]: expression [r]: expression
+				| {minus_eq}	[l]: expression [r]: expression
+				| {div_eq}		[l]: expression [r]: expression
+				| {left_branch} expression [expr1]: expression [expr2]: expression
+				| {function_call}  	expression;
+
+	expression =   {add} [l]: expression [r]: expression
+				 | {sub} [l]: expression [r]: expression
+				 | {mult} [l]: expression [r]: expression
+				 | {div} [l]: expression [r]: expression
+				 | {plusplus} expression
+				 | {minusminus} expression
+				 | {identifier} id
+				 | {number} num
+				 | {string} string
+				 | {identifier_leftbr} [l]: expression [r]: expression
+				 | {function_call} [l]: expression [r]: expression*
+				 | {leftbr_identifier} [l]: expression [r]: expression*;
+	
+	comparison =   {plm} expression
+				 | {less} [l]: comparison [r]: expression
+				 | {greater} [l]: comparison [r]: expression
+				 | {equal} [l]: comparison [r]: comparison
+				 | {not_equal} [l]: comparison [r]: comparison
+				 | {true}
+				 | {false};
